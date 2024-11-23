@@ -41,7 +41,7 @@ class MailboxAdmin(admin.ModelAdmin):
     
 @admin.register(Email)
 class EmailAdmin(admin.ModelAdmin):
-    list_display = ['subject', 'received_date', 'sender', 'recipient']
+    list_display = ['subject', 'received_date', 'sender', 'recipient', 'date']
     list_filter = ['received_date']
     search_fields = ['subject', 'sender', 'recipient']
     readonly_fields = ['received_date']
