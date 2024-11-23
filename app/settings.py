@@ -84,6 +84,12 @@ DATABASES = {
         'PASSWORD': os.getenv('MYSQL_PASSWORD', 'twoje_haslo_user'),
         'HOST': 'db',
         'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': 'SET character_set_connection=utf8mb4;'
+                          'SET collation_connection=utf8mb4_unicode_ci;'
+                          'SET NAMES utf8mb4;',
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import Mailbox
+from .models import Mailbox, Email
 
 class MailboxAdminForm(forms.ModelForm):
     imap_password = forms.CharField(
@@ -38,3 +38,12 @@ class MailboxAdmin(admin.ModelAdmin):
             'fields': ('is_active', 'last_error')
         })
     )
+    
+@admin.register(Email)
+class EmailAdmin(admin.ModelAdmin):
+    list_display = ['subject', 'received_date', 'sender', 'recipient']
+    list_filter = ['received_date']
+    search_fields = ['subject', 'sender', 'recipient']
+    readonly_fields = ['received_date']
+    
+    
