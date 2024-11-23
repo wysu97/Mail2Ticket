@@ -81,7 +81,7 @@ class Email(models.Model):
         db_collation='utf8mb4_unicode_ci'
     )
     received_date = models.DateTimeField(
-        verbose_name="Data otrzymania",
+        verbose_name="Data synchronizacji",
         default=timezone.now,
         null=True,
         blank=True
@@ -99,7 +99,7 @@ class Email(models.Model):
     mime_version = models.CharField(max_length=20, verbose_name="Wersja MIME", null=True, blank=True)
     return_path = models.CharField(max_length=255, verbose_name="Ścieżka zwrotna", null=True, blank=True)
     dkim_signature = models.TextField(verbose_name="Podpis DKIM", null=True, blank=True)
-    
+    date = models.DateTimeField(verbose_name="Data", null=True, blank=True)
     # Pola systemowe
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Data utworzenia w bazie")
     is_processed = models.BooleanField(default=False, verbose_name="Czy przetworzona")
@@ -127,7 +127,7 @@ class Email(models.Model):
             self.sender = headers.get('from', '')
             self.recipient = headers.get('to', '')
             self.subject = headers.get('subject', '')
-            
+            self.date = headers.get('date')
             date_str = headers.get('date')
             if date_str:
                 try:

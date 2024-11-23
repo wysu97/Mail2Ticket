@@ -9,63 +9,67 @@ from email.utils import parsedate_to_datetime
 # Create your views here.
 ## metoda która będzie pobierać maila ze skrzynki mailowej
 def fetch_emails(request):
-    # Pobierz dane do logowania
-    mailbox = Mailbox.objects.filter(is_active=True).first()
-    
-    if not mailbox:
-        return HttpResponse("Brak aktywnej skrzynki pocztowej")
-    
     try:
-        # Połącz się ze skrzynką używając odpowiedniego szyfrowania
-        if mailbox.imap_encryption == 'SSL':
-            mail = imaplib.IMAP4_SSL(mailbox.imap_server, mailbox.imap_port)
-        else:
-            mail = imaplib.IMAP4(mailbox.imap_server, mailbox.imap_port)
-            if mailbox.imap_encryption == 'TLS':
-                mail.starttls()
-        
-        # Logowanie z odszyfrowanym hasłem
+        mailbox = Mailbox.objects.first()
+        if not mailbox:
+            return HttpResponse("Brak skonfigurowanej skrzynki", status=400)
+
+        # Połączenie z serwerem IMAP
+        mail = imaplib.IMAP4_SSL(mailbox.imap_server)
         mail.login(mailbox.imap_login, mailbox.get_imap_password())
-        print(mailbox.get_imap_password())
         
         # Wybierz folder INBOX
         mail.select('INBOX')
-        
-        # Pobierz ostatni email 
+        skrzynki = mail.list()
+        # Sprawdź czy istnieje folder Archive, jeśli nie - utwórz go
+        if 'mail.Archive' not in [folder.decode().split('"/"')[-1] for folder in mail.list()[1]]:
+            mail.create('mail.Archive')
+
+        # Pobierz wszystkie maile
         _, messages = mail.search(None, 'ALL')
-        if not messages[0]:
-            return HttpResponse("Brak maili w skrzynce")
+        message_numbers = messages[0].split()
+        if not message_numbers:
+            return HttpResponse("Brak wiadomości do pobrania", status=200)
             
-        last_email_id = messages[0].split()[-1]
-        _, msg = mail.fetch(last_email_id, '(RFC822)')
-        email_body = msg[0][1]
-        email_message = email.message_from_bytes(email_body)
-        
-        # Dekodowanie tematu
-        subject = email_message['Subject']
-        decoded_subject = decode_header(subject)[0][0]
-        if isinstance(decoded_subject, bytes):
-            decoded_subject = decoded_subject.decode()
-            
-        # Zamknij połączenie
+        for num in message_numbers:
+            try:
+                # Konwertuj num na string, jeśli jest to potrzebne
+                msg_num = num.decode('utf-8') if isinstance(num, bytes) else str(num)
+                
+                # Pobierz wiadomość
+                _, msg_data = mail.fetch(msg_num, '(RFC822)')
+                
+                if msg_data[0] is None:
+                    continue
+                    
+                email_message = email.message_from_bytes(msg_data[0][1])
+                
+                # Przetwórz i zapisz email
+                email_data = extract_email_data(email_message)
+                email_obj = Email()
+                
+                if email_obj.save_from_json(json.loads(email_data)):
+                    try:
+                        # Przenieś wiadomość do archiwum
+                        mail.copy(msg_num, 'mail.Archive')
+                        mail.store(msg_num, '+FLAGS', '\\Deleted')
+                        mail.expunge()
+                        break #TODO: zmienić na pętlę   
+                    except Exception as e:
+                        return HttpResponse(f"Email zapisany, ale wystąpił błąd podczas przenoszenia do archiwum: {str(e)}", status=500)
+                else:
+                    return HttpResponse("Wystąpił błąd podczas zapisywania emaila", status=500)
+            except Exception as e:
+                print(f"Błąd podczas przetwarzania wiadomości {msg_num}: {str(e)}")
+                continue
+
         mail.close()
         mail.logout()
         
-        email_data = extract_email_data(email_message)
-        
-        # Zapisz email do bazy
-        email_obj = Email()
-        if email_obj.save_from_json(json.loads(email_data)):
-            return HttpResponse("Email został pomyślnie zapisany", status=200)
-        else:
-            return HttpResponse("Wystąpił błąd podczas zapisywania emaila", status=500)
+        return HttpResponse("Emaile zostały pomyślnie przetworzone i zarchiwizowane", status=200)
         
     except Exception as e:
-        # Zapisz błąd w modelu
-        print(str(e))
-        mailbox.last_error = str(e)
-        mailbox.save()
-        return HttpResponse(f"Wystąpił błąd podczas pobierania maila: {str(e)}")
+        return HttpResponse(f"Wystąpił błąd podczas pobierania maila: {str(e)}", status=500)
 
 def extract_email_data(email_message):
     # Podstawowe dane
@@ -76,15 +80,45 @@ def extract_email_data(email_message):
         'date': parsedate_to_datetime(email_message['Date']).isoformat() if email_message['Date'] else None
     }
     
-    # Pobieranie treści
+    # Pobieranie treści z obsługą różnych kodowań
     body = ""
     if email_message.is_multipart():
         for part in email_message.walk():
             if part.get_content_type() == "text/plain":
-                body = part.get_payload(decode=True).decode('utf-8')
+                payload = part.get_payload(decode=True)
+                charset = part.get_content_charset() or 'utf-8'
+                try:
+                    body = payload.decode(charset)
+                except UnicodeDecodeError:
+                    try:
+                        # Próba innych popularnych kodowań
+                        for encoding in ['iso-8859-2', 'windows-1250', 'latin1', 'ascii']:
+                            try:
+                                body = payload.decode(encoding)
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                    except:
+                        # Jeśli wszystko zawiedzie, użyj 'replace' aby pominąć problematyczne znaki
+                        body = payload.decode('utf-8', errors='replace')
                 break
     else:
-        body = email_message.get_payload(decode=True).decode('utf-8')
+        payload = email_message.get_payload(decode=True)
+        charset = email_message.get_content_charset() or 'utf-8'
+        try:
+            body = payload.decode(charset)
+        except UnicodeDecodeError:
+            try:
+                # Próba innych popularnych kodowań
+                for encoding in ['iso-8859-2', 'windows-1250', 'latin1', 'ascii']:
+                    try:
+                        body = payload.decode(encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+            except:
+                # Jeśli wszystko zawiedzie, użyj 'replace'
+                body = payload.decode('utf-8', errors='replace')
     
     # Tworzenie struktury JSON
     email_data = {
