@@ -1,8 +1,24 @@
 from django.contrib import admin
+from django import forms
 from .models import Mailbox
+
+class MailboxAdminForm(forms.ModelForm):
+    imap_password = forms.CharField(
+        widget=forms.PasswordInput(render_value=True),
+        required=False
+    )
+    smtp_password = forms.CharField(
+        widget=forms.PasswordInput(render_value=True),
+        required=False
+    )
+
+    class Meta:
+        model = Mailbox
+        fields = '__all__'
 
 @admin.register(Mailbox)
 class MailboxAdmin(admin.ModelAdmin):
+    form = MailboxAdminForm
     list_display = ['name', 'imap_server', 'smtp_server', 'is_active', 'created_at']
     list_filter = ['imap_encryption', 'smtp_encryption', 'is_active']
     search_fields = ['name', 'imap_server', 'smtp_server', 'imap_login', 'smtp_login']

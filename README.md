@@ -51,6 +51,7 @@ MYSQL_ROOT_PASSWORD=twoje_haslo_root
 MYSQL_DATABASE=mail2ticket
 MYSQL_USER=mail2ticket_user
 MYSQL_PASSWORD=twoje_haslo_user
+ENCRYPTION_KEY=klucz_szyfrowania
 ```
 
 ## Krok 2: Budowa i uruchomienie kontenerów
