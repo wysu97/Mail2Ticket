@@ -1,3 +1,4 @@
 django
 mysqlclient
 djangorestframework>=3.14.0
+cryptography
