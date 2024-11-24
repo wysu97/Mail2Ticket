@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django import forms
 from django.utils.safestring import mark_safe
-from .models import Mailbox, Email
+from .models import Mailbox, Email, MailFolder
 
 class MailboxAdminForm(forms.ModelForm):
     imap_password = forms.CharField(
@@ -24,6 +24,24 @@ class MailboxAdmin(admin.ModelAdmin):
     list_filter = ['imap_encryption', 'smtp_encryption', 'is_active']
     search_fields = ['name', 'imap_server', 'smtp_server', 'imap_login', 'smtp_login']
     list_editable = ['is_active']
+    actions = ['update_folders_action']
+    
+    def update_folders_action(self, request, queryset):
+        updated = 0
+        errors = 0
+        for mailbox in queryset:
+            try:
+                mailbox.update_folders()
+                updated += 1
+            except Exception as e:
+                errors += 1
+                self.message_user(request, f'Błąd dla {mailbox.name}: {str(e)}', level='ERROR')
+        
+        self.message_user(
+            request,
+            f'Zaktualizowano foldery dla {updated} skrzynek. Błędy: {errors}.'
+        )
+    update_folders_action.short_description = "Aktualizuj foldery wybranych skrzynek"
     
     fieldsets = (
         (None, {
@@ -51,4 +69,10 @@ class EmailAdmin(admin.ModelAdmin):
         return mark_safe(obj.content)
     formatted_content.short_description = 'Treść wiadomości'
     
-    
+
+@admin.register(MailFolder)
+class MailFolderAdmin(admin.ModelAdmin):
+    list_display = ['mailbox', 'name', 'full_path', 'attributes', 'updated_at']
+    list_filter = ['mailbox', 'attributes']
+    search_fields = ['name', 'full_path']
+    readonly_fields = ['created_at', 'updated_at']

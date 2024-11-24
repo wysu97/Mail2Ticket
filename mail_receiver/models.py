@@ -3,6 +3,7 @@ from mail_receiver.utils.encryption import encrypt_password, decrypt_password
 from django.db import models
 from django.utils import timezone
 from email.utils import parsedate_to_datetime
+import imaplib
 # Model do przetrzymywania danych skrzynek pocztowych, dane są potrzebne do logowania do skrzynek pocztowych
 class Mailbox(models.Model):
     name = models.CharField(max_length=100)
@@ -66,7 +67,41 @@ class Mailbox(models.Model):
     def get_smtp_password(self):
         return decrypt_password(self.smtp_password)
     
-    
+    def update_folders(self):
+        """Aktualizuje listę folderów dla skrzynki"""
+        mail = imaplib.IMAP4_SSL(self.imap_server)
+        mail.login(self.imap_login, self.get_imap_password())
+        
+        try:
+            _, folder_list = mail.list()
+            current_time = timezone.now()
+            
+            for folder_data in folder_list:
+                # Dekodowanie danych folderu
+                decoded_data = folder_data.decode('utf-8')
+                # Przykładowy format: (\HasNoChildren) "/" "INBOX.Sent"
+                attributes = decoded_data[1:decoded_data.find(')')] # Wyciąga atrybuty
+                delimiter = decoded_data.split('"')[1] # Wyciąga delimiter
+                full_path = decoded_data.split('"')[2].strip() # Wyciąga pełną ścieżkę
+                name = full_path.split(delimiter)[-1] # Wyciąga nazwę folderu
+                
+                # Aktualizacja lub utworzenie folderu
+                MailFolder.objects.update_or_create(
+                    mailbox=self,
+                    full_path=full_path,
+                    defaults={
+                        'name': name,
+                        'delimiter': delimiter,
+                        'attributes': attributes,
+                        'updated_at': current_time
+                    }
+                )
+            
+            # Opcjonalnie: usuń foldery, które już nie istnieją
+            self.folders.filter(updated_at__lt=current_time).delete()
+            
+        finally:
+            mail.logout()
 
 # Model do przetrzymywania danych emaili
 class Email(models.Model):
@@ -181,3 +216,21 @@ class EmailAttachment(models.Model):
 
     def __str__(self):
         return f"{self.filename} ({self.size} bajtów)"
+    
+
+class MailFolder(models.Model):
+    mailbox = models.ForeignKey('Mailbox', on_delete=models.CASCADE, related_name='folders')
+    full_path = models.CharField(max_length=255, help_text='Pełna ścieżka folderu')
+    name = models.CharField(max_length=100, help_text='Nazwa folderu')
+    delimiter = models.CharField(max_length=5, help_text='Separator używany w ścieżce')
+    attributes = models.CharField(max_length=50, help_text='Atrybuty folderu')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('mailbox', 'full_path')
+        verbose_name = 'Folder mailowy'
+        verbose_name_plural = 'Foldery mailowe'
+
+    def __str__(self):
+        return f"{self.mailbox}: {self.full_path}"
