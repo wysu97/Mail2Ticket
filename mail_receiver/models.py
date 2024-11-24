@@ -104,6 +104,8 @@ class Email(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Data utworzenia w bazie")
     is_processed = models.BooleanField(default=False, verbose_name="Czy przetworzona")
     processing_errors = models.TextField(null=True, blank=True, verbose_name="Błędy przetwarzania")
+    # TODO dodac załączniki
+    attachments = models.ManyToManyField('EmailAttachment', blank=True, related_name='emails')
     
     class Meta:
         verbose_name = "Email"
@@ -143,9 +145,39 @@ class Email(models.Model):
             self.return_path = metadata.get('return_path', '')
             self.dkim_signature = metadata.get('dkim_signature', '')
             
+            # Obsługa załączników
+            attachments = email_data.get('attachments', [])
+            for attachment_data in attachments:
+                attachment = EmailAttachment.objects.create(
+                    file=attachment_data.get('content'),
+                    filename=attachment_data.get('filename'),
+                    content_type=attachment_data.get('content_type'),
+                    size=attachment_data.get('size', 0)
+                )
+                self.attachments.add(attachment)
+            
             self.save()
             return True
         except Exception as e:
             self.processing_errors = str(e)
             self.save()
             return False
+
+# Model do przechowywania załączników
+class EmailAttachment(models.Model):
+    file = models.FileField(upload_to='email_attachments/%Y/%m/%d/', verbose_name="Plik")
+    filename = models.CharField(max_length=255, verbose_name="Nazwa pliku")
+    content_type = models.CharField(max_length=100, verbose_name="Typ MIME")
+    size = models.IntegerField(verbose_name="Rozmiar pliku (bajty)")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Data dodania")
+
+    class Meta:
+        verbose_name = "Załącznik"
+        verbose_name_plural = "Załączniki"
+        indexes = [
+            models.Index(fields=['filename']),
+            models.Index(fields=['content_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.filename} ({self.size} bajtów)"

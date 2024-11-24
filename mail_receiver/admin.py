@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django import forms
+from django.utils.safestring import mark_safe
 from .models import Mailbox, Email
 
 class MailboxAdminForm(forms.ModelForm):
@@ -44,6 +45,10 @@ class EmailAdmin(admin.ModelAdmin):
     list_display = ['subject', 'received_date', 'sender', 'recipient', 'date']
     list_filter = ['received_date']
     search_fields = ['subject', 'sender', 'recipient']
-    readonly_fields = ['received_date']
+    readonly_fields = ['received_date', 'formatted_content']
+    
+    def formatted_content(self, obj):
+        return mark_safe(obj.content)
+    formatted_content.short_description = 'Treść wiadomości'
     
     

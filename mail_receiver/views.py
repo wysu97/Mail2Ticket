@@ -47,7 +47,8 @@ def fetch_emails(request):
                 # Przetwórz i zapisz email
                 email_data = extract_email_data(email_message)
                 email_obj = Email()
-                
+                # print(email_message)
+                print(email_data)
                 if email_obj.save_from_json(json.loads(email_data)):
                     try:
                         # Przenieś wiadomość do archiwum
@@ -66,7 +67,7 @@ def fetch_emails(request):
         mail.close()
         mail.logout()
         
-        return HttpResponse("Emaile zostały pomyślnie przetworzone i zarchiwizowane", status=200)
+        return HttpResponse(f"Emaile zostały pomyślnie przetworzone i zarchiwizowane, {email_message} {email_data}", status=200)
         
     except Exception as e:
         return HttpResponse(f"Wystąpił błąd podczas pobierania maila: {str(e)}", status=500)
@@ -82,13 +83,35 @@ def extract_email_data(email_message):
     
     # Pobieranie treści z obsługą różnych kodowań
     body = ""
+    attachments = []
     if email_message.is_multipart():
         for part in email_message.walk():
-            if part.get_content_type() == "text/plain":
+            # Pomijamy części multipart
+            if part.get_content_maintype() == 'multipart':
+                continue
+                
+            # Pobieramy nazwę pliku
+            filename = part.get_filename()
+            if filename and part.get_content_type() != 'text/plain':
+                # Pobieramy zawartość załącznika
+                content = part.get_payload(decode=True)
+                
+                attachment_data = {
+                    'filename': decode_email_header(filename),
+                    'content': content,
+                    'content_type': part.get_content_type(),
+                    'size': len(content)
+                }
+                attachments.append(attachment_data)
+            elif part.get_content_type() == "text/plain" or part.get_content_type() == "text/html":
                 payload = part.get_payload(decode=True)
                 charset = part.get_content_charset() or 'utf-8'
                 try:
-                    body = payload.decode(charset)
+                    content = payload.decode(charset)
+                    if part.get_content_type() == "text/html":
+                        body = content  # Priorytet dla wersji HTML
+                    elif not body:  # Jeśli nie mamy jeszcze żadnej treści, użyj plain text
+                        body = content
                 except UnicodeDecodeError:
                     try:
                         # Próba innych popularnych kodowań
@@ -101,7 +124,6 @@ def extract_email_data(email_message):
                     except:
                         # Jeśli wszystko zawiedzie, użyj 'replace' aby pominąć problematyczne znaki
                         body = payload.decode('utf-8', errors='replace')
-                break
     else:
         payload = email_message.get_payload(decode=True)
         charset = email_message.get_content_charset() or 'utf-8'
@@ -124,12 +146,14 @@ def extract_email_data(email_message):
     email_data = {
         'headers': headers,
         'content': body,
+        'content_type': 'text/html' if '<html' in body.lower() else 'text/plain',
         'metadata': {
             'content_type': email_message.get_content_type(),
             'mime_version': email_message['MIME-Version'],
             'return_path': email_message['Return-Path'],
             'dkim_signature': email_message['DKIM-Signature'] if 'DKIM-Signature' in email_message else None,
-        }
+        },
+        'attachments': attachments
     }
     
     return json.dumps(email_data, ensure_ascii=False, indent=2)
