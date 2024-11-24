@@ -48,7 +48,7 @@ def fetch_emails(request):
                 email_data = extract_email_data(email_message)
                 email_obj = Email()
                 # print(email_message)
-                print(email_data)
+                # print(email_data)
                 if email_obj.save_from_json(json.loads(email_data)):
                     try:
                         # Przenieś wiadomość do archiwum
@@ -67,7 +67,7 @@ def fetch_emails(request):
         mail.close()
         mail.logout()
         
-        return HttpResponse(f"Emaile zostały pomyślnie przetworzone i zarchiwizowane, {email_message} {email_data}", status=200)
+        return HttpResponse(f"Emaile zostały pomyślnie przetworzone i zarchiwizowane", status=200)
         
     except Exception as e:
         return HttpResponse(f"Wystąpił błąd podczas pobierania maila: {str(e)}", status=500)
