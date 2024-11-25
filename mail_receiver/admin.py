@@ -20,7 +20,7 @@ class MailboxAdminForm(forms.ModelForm):
 @admin.register(Mailbox)
 class MailboxAdmin(admin.ModelAdmin):
     form = MailboxAdminForm
-    list_display = ['name', 'imap_server', 'smtp_server', 'is_active', 'created_at']
+    list_display = ['name', 'imap_server', 'smtp_server', 'is_active', 'created_at', 'folder_count', 'last_sync']
     list_filter = ['imap_encryption', 'smtp_encryption', 'is_active']
     search_fields = ['name', 'imap_server', 'smtp_server', 'imap_login', 'smtp_login']
     list_editable = ['is_active']
@@ -57,6 +57,25 @@ class MailboxAdmin(admin.ModelAdmin):
             'fields': ('is_active', 'last_error')
         })
     )
+    
+    def folder_count(self, obj):
+        return obj.folders.count()
+    folder_count.short_description = 'Liczba folderów'
+    
+    def email_count(self, obj):
+        from .models import Email
+        # Pobierz wszystkie ID folderów dla danej skrzynki
+        folder_ids = obj.folders.values_list('id', flat=True)
+        # Policz emaile dla tych folderów
+        return Email.objects.filter(mail_folder_id__in=folder_ids).count()
+    email_count.short_description = 'Liczba wiadomości'
+    
+    def last_sync(self, obj):
+        latest_folder = obj.folders.order_by('-updated_at').first()
+        if latest_folder:
+            return latest_folder.updated_at
+        return '-'
+    last_sync.short_description = 'Ostatnia synchronizacja'
     
 @admin.register(Email)
 class EmailAdmin(admin.ModelAdmin):

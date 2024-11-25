@@ -36,7 +36,7 @@ class Mailbox(models.Model):
     last_error = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    
     class Meta:
         verbose_name = 'Mailbox'
         verbose_name_plural = 'Mailboxes'
@@ -105,6 +105,13 @@ class Mailbox(models.Model):
 
 # Model do przetrzymywania danych emaili
 class Email(models.Model):
+    # mail_folder = models.ForeignKey(
+    #     'MailFolder',
+    #     on_delete=models.CASCADE,
+    #     related_name='emails',
+    #     null=True,
+    #     blank=True
+    # )
     # Podstawowe pola nagłówkowe
     sender = models.CharField(max_length=255, verbose_name="Nadawca")
     recipient = models.CharField(max_length=255, verbose_name="Odbiorca", null=True, blank=True)
@@ -219,7 +226,11 @@ class EmailAttachment(models.Model):
     
 
 class MailFolder(models.Model):
-    mailbox = models.ForeignKey('Mailbox', on_delete=models.CASCADE, related_name='folders')
+    mailbox = models.ForeignKey(
+        Mailbox,
+        on_delete=models.CASCADE,
+        related_name='folders'
+    )
     full_path = models.CharField(max_length=255, help_text='Pełna ścieżka folderu')
     name = models.CharField(max_length=100, help_text='Nazwa folderu')
     delimiter = models.CharField(max_length=5, help_text='Separator używany w ścieżce')
