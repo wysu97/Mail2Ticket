@@ -105,14 +105,14 @@ class Mailbox(models.Model):
 
 # Model do przetrzymywania danych emaili
 class Email(models.Model):
-    # mail_folder = models.ForeignKey(
-    #     'MailFolder',
-    #     on_delete=models.CASCADE,
-    #     related_name='emails',
-    #     null=True,
-    #     blank=True
-    # )
-    # Podstawowe pola nagłówkowe
+    mailbox = models.ForeignKey(
+        'Mailbox',
+        on_delete=models.CASCADE,
+        related_name='emails',
+        verbose_name="Skrzynka pocztowa",
+        null=True
+    )
+    
     sender = models.CharField(max_length=255, verbose_name="Nadawca")
     recipient = models.CharField(max_length=255, verbose_name="Odbiorca", null=True, blank=True)
     subject = models.CharField(
@@ -157,14 +157,18 @@ class Email(models.Model):
             models.Index(fields=['-received_date']),
             models.Index(fields=['sender']),
             models.Index(fields=['is_processed']),
+            models.Index(fields=['mailbox']),
         ]
 
     def __str__(self):
         return f"{self.subject} - {self.sender} ({self.received_date})"
 
     def save_from_json(self, email_data):
-        """Metoda do zapisywania danych z JSON"""
         try:
+            # mailbox powinno być już ustawione przed wywołaniem tej metody
+            if not self.mailbox:
+                raise ValueError("Nie ustawiono skrzynki pocztowej")
+            
             headers = email_data['headers']
             metadata = email_data['metadata']
             
@@ -201,8 +205,7 @@ class Email(models.Model):
             self.save()
             return True
         except Exception as e:
-            self.processing_errors = str(e)
-            self.save()
+            print(f"Błąd podczas zapisywania emaila: {str(e)}")
             return False
 
 # Model do przechowywania załączników

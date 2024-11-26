@@ -2,6 +2,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.safestring import mark_safe
 from .models import Mailbox, Email, MailFolder
+from django.db.models import Count, Q, Subquery, OuterRef
 
 class MailboxAdminForm(forms.ModelForm):
     imap_password = forms.CharField(
@@ -20,7 +21,7 @@ class MailboxAdminForm(forms.ModelForm):
 @admin.register(Mailbox)
 class MailboxAdmin(admin.ModelAdmin):
     form = MailboxAdminForm
-    list_display = ['name', 'imap_server', 'smtp_server', 'is_active', 'created_at', 'folder_count', 'last_sync']
+    list_display = ['name', 'imap_server', 'smtp_server', 'is_active', 'created_at', 'folder_count', 'email_count', 'last_sync']
     list_filter = ['imap_encryption', 'smtp_encryption', 'is_active']
     search_fields = ['name', 'imap_server', 'smtp_server', 'imap_login', 'smtp_login']
     list_editable = ['is_active']
@@ -63,10 +64,11 @@ class MailboxAdmin(admin.ModelAdmin):
     folder_count.short_description = 'Liczba folderów'
     
     def email_count(self, obj):
-        from .models import Email
-        # Pobierz wszystkie ID folderów dla danej skrzynki
+        # Jeśli email_count został już obliczony przez annotate
+        if hasattr(obj, 'email_count_annotated'):
+            return obj.email_count_annotated
+        # Fallback do oryginalnej metody
         folder_ids = obj.folders.values_list('id', flat=True)
-        # Policz emaile dla tych folderów
         return Email.objects.filter(mail_folder_id__in=folder_ids).count()
     email_count.short_description = 'Liczba wiadomości'
     
@@ -76,6 +78,18 @@ class MailboxAdmin(admin.ModelAdmin):
             return latest_folder.updated_at
         return '-'
     last_sync.short_description = 'Ostatnia synchronizacja'
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.annotate(
+            email_count_annotated=Subquery(
+                Email.objects.filter(
+                    mailbox=OuterRef('pk')
+                ).values('mailbox')
+                .annotate(count=Count('id'))
+                .values('count')
+            )
+        )
     
 @admin.register(Email)
 class EmailAdmin(admin.ModelAdmin):

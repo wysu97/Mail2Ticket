@@ -47,6 +47,7 @@ def fetch_emails(request):
                 # Przetwórz i zapisz email
                 email_data = extract_email_data(email_message)
                 email_obj = Email()
+                email_obj.mailbox = mailbox
                 # print(email_message)
                 # print(email_data)
                 if email_obj.save_from_json(json.loads(email_data)):
