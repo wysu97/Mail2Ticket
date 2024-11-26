@@ -3,3 +3,6 @@ mysqlclient
 djangorestframework>=3.14.0
 cryptography
 python-dotenv==1.0.0
+celery>=5.3.6
+django-celery-beat>=2.5.0
+redis>=5.0.1  # jeśli używasz Redis jako brokera

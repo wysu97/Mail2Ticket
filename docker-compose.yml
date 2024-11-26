@@ -18,6 +18,47 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
     depends_on:
       - db
+      - redis
+
+  celery_worker:
+    build: .
+    container_name: celery_worker
+    command: celery -A app worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - db
+    environment:
+      DJANGO_SETTINGS_MODULE: app.settings
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+
+  celery_beat:
+    build: .
+    container_name: celery_beat
+    command: celery -A app beat -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - db
+    environment:
+      DJANGO_SETTINGS_MODULE: app.settings
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
 
   db:
     image: mysql:8.0
