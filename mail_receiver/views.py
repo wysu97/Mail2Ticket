@@ -10,20 +10,33 @@ from email.utils import parsedate_to_datetime
 ## metoda która będzie pobierać maila ze skrzynki mailowej
 def fetch_emails(request):
     try:
-        mailbox = Mailbox.objects.first()
+        mailbox = Mailbox.objects.filter(is_active=True).first()
         if not mailbox:
-            return HttpResponse("Brak skonfigurowanej skrzynki", status=400)
+            return HttpResponse("Brak aktywnej skonfigurowanej skrzynki", status=400)
 
-        # Połączenie z serwerem IMAP
-        mail = imaplib.IMAP4_SSL(mailbox.imap_server)
-        mail.login(mailbox.imap_login, mailbox.get_imap_password())
+        server = mailbox.imap_server
+        port = 1143  # port dla STARTTLS w Proton Mail Bridge
+
+        try:
+            # Używamy IMAP4 (nie IMAP4_SSL) dla STARTTLS
+            mail = imaplib.IMAP4(server, port)
+            # Włączamy szyfrowanie STARTTLS
+            if not mail.starttls():
+                raise Exception("Nie udało się ustanowić połączenia STARTTLS")
+        except Exception as e:
+            return HttpResponse(f"Błąd połączenia z serwerem: {str(e)}", status=500)
+
+        try:
+            mail.login(mailbox.imap_login, mailbox.get_imap_password())
+        except Exception as e:
+            return HttpResponse(f"Błąd logowania: {str(e)}", status=500)
         
         # Wybierz folder INBOX
         mail.select('INBOX')
         skrzynki = mail.list()
         # Sprawdź czy istnieje folder Archive, jeśli nie - utwórz go
-        if 'mail.Archive' not in [folder.decode().split('"/"')[-1] for folder in mail.list()[1]]:
-            mail.create('mail.Archive')
+        if 'Archive' not in [folder.decode().split('"/"')[-1] for folder in mail.list()[1]]:
+            mail.create('Archive')
 
         # Pobierz wszystkie maile
         _, messages = mail.search(None, 'ALL')

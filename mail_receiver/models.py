@@ -4,6 +4,27 @@ from django.db import models
 from django.utils import timezone
 from email.utils import parsedate_to_datetime
 import imaplib
+import re
+import binascii
+from email.header import decode_header
+
+def _decode_modified_utf7(encoded_text):
+    """Dekoduje tekst z IMAP Modified UTF-7 do UTF-8"""
+    if not encoded_text:
+        return encoded_text
+        
+    def _modified_utf7_decode(s):
+        s_bytes = s.encode('ascii')
+        s_bytes = s_bytes.replace(b',', b'/')
+        try:
+            return binascii.a2b_base64(s_bytes).decode('utf-16-be')
+        except:
+            return s
+
+    pattern = r'&([^-]*)-'
+    result = re.sub(pattern, lambda m: _modified_utf7_decode(m.group(1)), encoded_text)
+    return result
+
 # Model do przetrzymywania danych skrzynek pocztowych, dane są potrzebne do logowania do skrzynek pocztowych
 class Mailbox(models.Model):
     name = models.CharField(max_length=100)
@@ -17,6 +38,7 @@ class Mailbox(models.Model):
     imap_encryption = models.CharField(max_length=10, choices=[
         ('SSL', 'SSL'),
         ('TLS', 'TLS'),
+        ('STARTTLS', 'STARTTLS'),
         ('NONE', 'None')
     ], default='SSL')
     
@@ -28,6 +50,7 @@ class Mailbox(models.Model):
     smtp_encryption = models.CharField(max_length=10, choices=[
         ('SSL', 'SSL'),
         ('TLS', 'TLS'),
+        ('STARTTLS', 'STARTTLS'),
         ('NONE', 'None')
     ], default='TLS')
     
@@ -69,10 +92,15 @@ class Mailbox(models.Model):
     
     def update_folders(self):
         """Aktualizuje listę folderów dla skrzynki"""
-        mail = imaplib.IMAP4_SSL(self.imap_server)
-        mail.login(self.imap_login, self.get_imap_password())
+        if self.imap_encryption == 'SSL':
+            mail = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
+        else:
+            mail = imaplib.IMAP4(self.imap_server, self.imap_port)
+            if self.imap_encryption == 'STARTTLS':
+                mail.starttls()
         
         try:
+            mail.login(self.imap_login, self.get_imap_password())
             _, folder_list = mail.list()
             current_time = timezone.now()
             
@@ -80,28 +108,41 @@ class Mailbox(models.Model):
                 # Dekodowanie danych folderu
                 decoded_data = folder_data.decode('utf-8')
                 # Przykładowy format: (\HasNoChildren) "/" "INBOX.Sent"
-                attributes = decoded_data[1:decoded_data.find(')')] # Wyciąga atrybuty
-                delimiter = decoded_data.split('"')[1] # Wyciąga delimiter
-                full_path = decoded_data.split('"')[2].strip() # Wyciąga pełną ścieżkę
-                name = full_path.split(delimiter)[-1] # Wyciąga nazwę folderu
-                
-                # Aktualizacja lub utworzenie folderu
-                MailFolder.objects.update_or_create(
-                    mailbox=self,
-                    full_path=full_path,
-                    defaults={
-                        'name': name,
-                        'delimiter': delimiter,
-                        'attributes': attributes,
-                        'updated_at': current_time
-                    }
-                )
+                parts = re.match(r'\((.*?)\) "(.*?)" "(.*?)"', decoded_data)
+                print(parts)
+                if parts:
+                    attributes = parts.group(1)
+                    delimiter = parts.group(2)
+                    full_path = parts.group(3)
+                    
+                    # Dekodowanie nazwy folderu z IMAP Modified UTF-7
+                    decoded_path = _decode_modified_utf7(full_path)
+                    name = decoded_path.split(delimiter)[-1]
+                    
+                    # Aktualizacja lub utworzenie folderu
+                    MailFolder.objects.update_or_create(
+                        mailbox=self,
+                        full_path=decoded_path,
+                        defaults={
+                            'name': name,
+                            'delimiter': delimiter,
+                            'attributes': attributes,
+                            'updated_at': current_time
+                        }
+                    )
             
-            # Opcjonalnie: usuń foldery, które już nie istnieją
+            # Usuń foldery, które już nie istnieją
             self.folders.filter(updated_at__lt=current_time).delete()
             
+        except imaplib.IMAP4.error as e:
+            self.last_error = f"Błąd IMAP: {str(e)}"
+            self.save()
+            raise
         finally:
-            mail.logout()
+            try:
+                mail.logout()
+            except:
+                pass
 
 # Model do przetrzymywania danych emaili
 class Email(models.Model):
@@ -111,6 +152,16 @@ class Email(models.Model):
         related_name='emails',
         verbose_name="Skrzynka pocztowa",
         null=True
+    )
+    
+    # Dodajemy pole ticket
+    ticket = models.CharField(
+        max_length=50,
+        verbose_name="Numer zgłoszenia",
+        null=True,
+        blank=True,
+        help_text="Numer zgłoszenia wyodrębniony z tematu lub treści wiadomości",
+        db_index=True
     )
     
     sender = models.CharField(max_length=255, verbose_name="Nadawca")
@@ -175,6 +226,16 @@ class Email(models.Model):
             self.sender = headers.get('from', '')
             self.recipient = headers.get('to', '')
             self.subject = headers.get('subject', '')
+            
+            # Dodajemy ekstrakcję numeru zgłoszenia z tematu
+            if self.subject:
+                # Przykładowy wzorzec - możesz dostosować według swoich potrzeb
+                ticket_pattern = r'\[#(\d+)\]|\(#(\d+)\)|#(\d+)'
+                ticket_match = re.search(ticket_pattern, self.subject)
+                if ticket_match:
+                    # Bierzemy pierwszą znalezioną grupę, która nie jest None
+                    self.ticket = next(group for group in ticket_match.groups() if group is not None)
+            
             self.date = headers.get('date')
             date_str = headers.get('date')
             if date_str:
